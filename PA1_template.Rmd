@@ -5,21 +5,147 @@ output:
     keep_md: true
 ---
 
-
 ## Loading and preprocessing the data
+This assignment makes use of data from a personal activity monitoring device. This device collects data at 5 minute intervals through out the day. The data consists of two months of data from an anonymous individual collected during the months of October and November, 2012 and include the number of steps taken in 5 minute intervals each day.
+The variables included in this dataset are:
+* *steps:* Number of steps taking in a 5-minute interval (missing values are coded as NA)
+* *date:* The date on which the measurement was taken in YYYY-MM-DD format
+* *interval:* Identifier for the 5-minute interval in which measurement was taken
 
+The dataset is stored in a comma-separated-value (CSV) file and there are a total of 17,568 observations in this dataset.
+```{r message=FALSE}
+library("dplyr")
+library("lattice")
+library("reshape2")
 
+ProjectDir <- "~/R/Class5/RepData_PeerAssessment1"
+DataURL <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip"
+DataFile <- "activity.csv"
+now <- Sys.time()
+
+system(paste("mkdir -p ", ProjectDir))
+setwd(ProjectDir)
+system(paste("wget ",DataURL))
+
+setClass('myDate')
+setAs("character","myDate", function(from) as.Date(from, format="%Y-%m-%d") )
+vClasses <- c("numeric", "myDate", "numeric")
+dfRaw <- read.table(DataFile, header=TRUE, sep=",", colClasses=vClasses)
+dfData <- dfRaw[! is.na(dfRaw[1]),] 
+dfMissing <- dfRaw[is.na(dfRaw[1]),] 
+
+message(paste("Downloaded data set on at",now))
+```
 
 ## What is mean total number of steps taken per day?
+```{r fig.path="figures/"}
+melted <- melt(data=dfData, id.vars=c("date"), measure.vars=c("steps"))
+sumSteps <- dcast(data=melted, date ~ variable, fun.aggregate=sum)
+meanSteps <- dcast(data=melted, date ~ variable, fun.aggregate=mean)
+medianSteps <- dcast(data=melted, date ~ variable, fun.aggregate=median)
 
+colnames(sumSteps) <- c("date","totalSteps")
+colnames(medianSteps) <- c("date1","medianSteps")
+colnames(meanSteps) <- c("date2","meanSteps")
+dat <- cbind(sumSteps, meanSteps, medianSteps) 
+#barplot(sumSteps$totalSteps, main="Total Steps Per Day", xlab="Day", axis.lty=1) 
+plot(sumSteps$totalSteps ~ date,
+       data = dat,
+       type = "h",lwd = 5,col="blue",
+       main="Total Steps Per Day",
+       sub="missing data ignored",
+       xlab="Day",ylab="Steps"
+)
 
+baseFig <- plot(dat$date, dat$meanSteps, 
+       type = "l",col="blue",
+       main="Mean/Median Steps Per Day",
+       sub="missing data ignored",
+       xlab="Day", ylab="Steps")
+points(dat$date, dat$medianSteps, 
+       type = 'l',col="red")
+legend("topright", 
+       legend=c("Mean","Median"),
+       col=c("blue","red"),
+       lty=1)
+```
 
 ## What is the average daily activity pattern?
-
+```{r fig.path="figures/"}
+melted1 <- melt(data=dfData, id.vars=c("interval"), measure.vars=c("steps"))
+meanInterval <- dcast(data=melted1, interval ~ variable, fun.aggregate=mean)
+xyplot(steps ~ interval,
+       data = meanInterval,
+       type = "l"
+)
+```
 
 
 ## Imputing missing values
+```{r fig.path="figures/"}
+#steps.y will contain the median for the interval across all days for any row that 
+#originally had a missing step count for that interval.
+dfReplaceInt <- inner_join (dfMissing, meanInterval, by="interval") %>%
+                select (date,interval,steps.y)
+colnames(dfReplaceInt) <- c("date","interval","steps")
 
+#Has all the original values, plus the interval median for any missing values
+dfNewSet <- rbind(dfReplaceInt, dfData[c(2,3,1)])
 
+melted2 <- melt(data=dfNewSet, id.vars=c("date"), measure.vars=c("steps"))
+sumNewSteps <- dcast(data=melted2, date ~ variable, fun.aggregate=sum)
+meanNewSteps <- dcast(data=melted2, date ~ variable, fun.aggregate=mean)
+medianNewSteps <- dcast(data=melted2, date ~ variable, fun.aggregate=median)
+
+colnames(sumNewSteps) <- c("date","totalSteps")
+colnames(meanNewSteps) <- c("date2","meanSteps")
+colnames(medianNewSteps) <- c("date1","medianSteps")
+dat <- cbind(sumNewSteps, meanNewSteps, medianNewSteps) 
+#barplot(sumNewSteps$steps, main="Revised Total Steps Per Day", xlab="Day", axis.lty=1) 
+
+plot(sumNewSteps$totalSteps ~ date,
+       data = dat,
+       type = "h",lwd = 5,col="blue",
+       main="Total Steps Per Day",
+       sub="missing data replaced with mean by interval",
+       xlab="Day", ylab="Steps"
+)
+
+baseFig <- plot(dat$date, dat$meanSteps, 
+       type = "l",col="blue",
+       main="Mean/Median Steps Per Day",
+       sub="missing data replaced with mean by interval",
+       xlab="Day", ylab="Steps")
+points(dat$date, dat$medianSteps, 
+       type = 'l',col="red")
+legend("topright", 
+       legend=c("Mean","Median"),
+       col=c("blue","red"),
+       lty=1)
+
+```
 
 ## Are there differences in activity patterns between weekdays and weekends?
+```{r fig.path="figures/"}
+fnWeekend <- function(day){
+    if (day == "Sat" || day == "Sun")  {
+        rv <- "Weekend" }
+    else {
+        rv <- "Weekday" }
+    return (rv)
+}
+
+Days <- weekdays(dfNewSet$date,TRUE)
+WD <-  as.data.frame(sapply(Days, fnWeekend))
+colnames(WD) <- c("dayType")
+x <- bind_cols(dfNewSet,WD)
+
+melted3 <- melt(data=x, id.vars=c("interval","dayType"), measure.vars=c("steps"))
+meanNewIntervalSteps <- dcast(data=melted3, interval + dayType ~ variable, fun.aggregate=mean)
+
+xyplot(steps ~ interval |dayType,
+       data = meanNewIntervalSteps,
+       type = "l",
+       layout=c(1,2)
+       )
+```
